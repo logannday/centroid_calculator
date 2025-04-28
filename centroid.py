@@ -25,16 +25,31 @@ def calculate_centroid(structure, targets):
     for target in targets:
         chain = model[target.chain]
         for i in target.residues:
-            for atom in chain[i]:
-                coords = atom.get_coord()
-                xs.append(coords[0])
-                ys.append(coords[1])
-                zs.append(coords[2])
+            coords = chain[i]["CA"].get_coord()
+            xs.append(coords[0])
+            ys.append(coords[1])
+            zs.append(coords[2])
+
 
     centroid = [np.average(xs), np.average(ys), np.average(zs)]
 
     return centroid
 
+def closest_interface_residue(structure, targets, res):
+    model = structure[0]
+    
+    alpha_carbon = model[res.chain][res.residues[0]]["CA"] # alpha carbon of residue of interest
+    min_distance = np.inf
+
+    # Finding the closest interface residue to the residue of interest
+    for target in targets: 
+        chain = model[target.chain]
+        for i in target.residues:
+            for atom in chain[i]:
+                min_distance = np.minimum(min_distance, atom - alpha_carbon)
+
+    return min_distance
+    
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('pdb-id', type=str)
@@ -61,7 +76,9 @@ def main():
     myProtein = parser.get_structure("1ak4", "1ak4.pdb")
     # myChain = myProtein[0]["A"]
     centroid = calculate_centroid(myProtein, target_objects)
+    min_distance = closest_interface_residue(myProtein, target_objects, Target("A", [25]))
     print("Centroid: ", centroid)
+    print("Min distance:", min_distance)
 
 
 if __name__ == "__main__":
