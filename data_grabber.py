@@ -10,8 +10,8 @@ from Bio.PDB.internal_coords import *
 # from Bio.SeqRecord import SeqRecord
 # from Bio.PDB.PDBIO import PDBIO
 import pandas as pd
-# import numpy as np
-from centroid import Target, calculate_centroid, closest_interface_residue
+from centroid import calculate_centroid, closest_interface_residue
+from detect_interface import get_interface_residues
 from dataclasses import dataclass
 
 @dataclass
@@ -23,7 +23,7 @@ class mutant:
 
 def get_structures(path):
     parser = PDBParser()
-    myProtein = parser.get_structure("1ak4", "1ak4.pdb")
+    myProtein = parser.get_structure("1brs", "1brs.pdb")
     path = "./1brs_PDBS/"
     filenames = os.listdir(path)
     mutants = []
@@ -43,21 +43,37 @@ def get_structures(path):
         mutants.append(mutant(struct, True, residue, chain))
     return mutants
 
-def get_data(mutants):
-    target = Target("A", [5, 6, 7, 9, 10])
-    targets = [target]
+# Get the residue defined at the absolute location in the pdb
+def get_res_by_absolute_index(struc, location):
+    chain_a_len = len(list(struc[0]['A'].get_residues()))
+    if chain_a_len > location:
+        return struc[0]['A'][location]
+    return struc[0]['B'][location - chain_a_len]
+
+def populate_dataframe(wildtype: Structure, mutants):
     rows = []
     for mutant in mutants:
-        centroid = calculate_centroid(mutant.structure, targets)
-        print(mutant)
+        interface_residues = get_interface_residues(mutant, ["C", "F"])
+        centroid = calculate_centroid(interface_residues)
+        inserted_residue = get_res_by_absolute_index(mutant.structure, mutant.location)
+        cir = closest_interface_residue(interface_residues, inserted_residue)
+        print(inserted_residue.get_coord())
+        breakpoint()
         rows.append({ 
-            "chain": mutant.chain,
+            "location": mutant.location,
+            "residue": mutant.residue,
         })
     df = pd.DataFrame.from_dict(rows)
+    return df
 
 def main():
+    parser = PDBParser()
+    wildtype = parser.get_structure("1brs", "./1brs.pdb")
+    for chain in wildtype[0]:
+        print(chain.id)
     mutants = get_structures("./1brs_PDBS")
-    data = get_data(mutants)
+    data = populate_dataframe(wildtype, mutants)
+    # print(data.head())
 
 if __name__ == "__main__":
     main()
