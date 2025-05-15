@@ -1,4 +1,4 @@
-import re, argparse
+import re, argparse, os, sys
 from typing import List
 
 from json_to_struc_list import load_structures
@@ -12,7 +12,7 @@ from Bio.PDB.Residue import Residue
 from Bio.PDB.internal_coords import *
 import pandas as pd
 import numpy as np
-from centroid import calculate_centroid, calculate_rmsd, closest_interface_residue
+from centroid import calculate_centroid, calculate_rmsd, closest_res_distance
 from detect_interface import get_interface_residues
 from dataclasses import dataclass
 
@@ -60,9 +60,8 @@ def get_mutants(structs_names) -> List[Mutant]:
      parse the struct and insertion_or_deletion, mutation location,
      and residue name from the filename into a
      list of Mutant objects
-    
+
     structs_names: list of tuples (Struture, Filename)
-    head: return only the top few
     """
     mutants = []
     pattern = r"^(\w+)(?:_ins)?_(\d+)_([A-Za-z])\.json$"
@@ -78,29 +77,31 @@ def get_mutants(structs_names) -> List[Mutant]:
         mutants.append(Mutant(struct, insertion, ins_location, resname, filename))
     return mutants
 
-# def get_mutants(base_path) -> List[Mutant]:
-#     """
-#     given a list of tuples (struct, filename)
-#      parse the struct and insertion_or_deletion, mutation location,
-#      and residue name from the filename into a
-#      list of Mutant objects
-#     """
-#     parser = PDBParser()
-#     mutants = []
-#     pattern = r"^(\w+)(?:_ins)?_(\d+)_([A-Za-z])\.pdb$"
-#     for filename in os.listdir(base_path):
-#         print(filename)
-#         match = re.match(pattern, filename)
-#         if not match:
-#             raise ValueError(f"Filename {filename} doesn't match the expected format.")
-#         insertion = "_ins" in filename
-#         pdb_id = match.group(1)
-#         ins_location = int(match.group(2))
-#         resname = match.group(3)
-#         struct = parser.get_structure(pdb_id, os.path.join(base_path, filename))
-#         mutants.append(Mutant(struct, insertion, ins_location, resname))
-    
+
+def get_mutants_from_base_path(base_path) -> List[Mutant]:
+    """
+    given a list of tuples (struct, filename)
+     parse the struct and insertion_or_deletion, mutation location,
+     and residue name from the filename into a
+     list of Mutant objects
+    """
+    parser = PDBParser()
+    mutants = []
+    pattern = r"^(\w+)(?:_ins)?_(\d+)_([A-Za-z])\.pdb$"
+    for filename in os.listdir(base_path):
+        print(filename)
+        match = re.match(pattern, filename)
+        if not match:
+            raise ValueError(f"Filename {filename} doesn't match the expected format.")
+        insertion = "_ins" in filename
+        pdb_id = match.group(1)
+        ins_location = int(match.group(2))
+        resname = match.group(3)
+        struct = parser.get_structure(pdb_id, os.path.join(base_path, filename))
+        mutants.append(Mutant(struct, insertion, ins_location, resname))
+
     return mutants
+
 
 def get_res_by_absolute_index(
     struc: Structure, location: int, chains=("A", "B")
@@ -121,17 +122,21 @@ def get_res_by_absolute_index(
     chain1_len = len(chain1_res)
     chain2_len = len(chain2_res)
 
+    # Determine the insertion location within the chain
     if chain1_len > location:
         return chain1_res[location]
     if (location - chain1_len) > len(chain2_res) - 1:
         # hack to avoid out of bounds error on the last residue
         # Potential Todo: calculate distance from centroid on mutant??
-        return chain2_res[chain2_len-1]
+        return chain2_res[chain2_len - 1]
     return chain2_res[location - chain1_len]
+
 
 def get_fasta(struc: Structure, chain_ids=("A", "B")):
     """
     Return the fasta sequence for the specified chains of a given structure
+
+    chain_ids: List of chains to include in the sequence
     """
     model = struc[0]
     sequence = []
@@ -159,7 +164,8 @@ def map_residues(
     the pipeline renames the chains when it produces the mutants
     """
     wt_seq = get_fasta(ref_struc, wt_chains)
-    mut_seq = get_fasta(target_struc)
+    # The Pipeline produces mutants that have chains A and B by default
+    mut_seq = get_fasta(target_struc, ("A", "B"))
 
     aligner = PairwiseAligner()
     alignments = aligner.align(wt_seq, mut_seq)
@@ -180,21 +186,31 @@ def populate_dataframe(
     wt_interface_residues = get_interface_residues(wildtype, chain_ids=wt_chains)
     centroid = calculate_centroid(wt_interface_residues)
     rows = []
+    """
+        Iterate through a list of Mutant objects and generate 
+        interface metrics for each one
+        wildtype: Structure of the wildtype protein
+        Mutants: List of Mutants, each containing a Biopython Structure,
+            insertion location, and insertion residue information
+    """
 
     for mutant in mutants:
         try:
-            # Skip mutants with incorrect chaid IDs
-            validate_chains(mutant.structure, ('A', 'B'))
+            validate_chains(mutant.structure, ("A", "B"))
         except:
+            sys.stderr.write("Skipping mutant with incorrect chain ids\n")
             continue
 
         mut_interface_residues = map_residues(
             wildtype, mutant.structure, wt_interface_residues, wt_chains
         )
+        # Get the residue in the wildtype at the future insertion position
         inserted_residue = get_res_by_absolute_index(
             wildtype, mutant.location, wt_chains
         )
-        cir = closest_interface_residue(wt_interface_residues, inserted_residue)
+        cir_distance = closest_res_distance(
+            wt_interface_residues, inserted_residue
+        )
         centroid_distance = np.linalg.norm(
             inserted_residue["CA"].get_coord() - centroid
         )
@@ -205,7 +221,7 @@ def populate_dataframe(
                 "location": mutant.location,
                 "residue": mutant.residue,
                 "centroid_distance": centroid_distance,
-                "closest_interface_res_distance": cir,
+                "closest_interface_res_distance": cir_distance,
                 "interface_rmsd": interface_rmsd,
             }
         )
@@ -228,7 +244,7 @@ def main():
     argparser.add_argument(
         "pdb_id", type=str, help='pdb id of the protein. For example, "1brs"'
     )
-    argparser.add_argument('--limit', type=int, help="limit of mutants to test")
+    argparser.add_argument("--limit", type=int, help="limit of mutants to test")
     argparser.add_argument(
         "chain_ids",
         type=str,
@@ -258,9 +274,10 @@ def main():
 
     mutants = get_mutants(structs_names)
     data = populate_dataframe(wildtype, mutants, chain_ids)
-    plot_centroid_vs_rmsd(data, save_path=f"./plots/{pdb_id}")
-    
+    # plot_centroid_vs_rmsd(data, save_path=f"./plots/{pdb_id}")
+
     data.to_csv(f"{outpath}" + "/" + pdb_id)
+
 
 if __name__ == "__main__":
     main()
