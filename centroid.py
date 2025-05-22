@@ -14,22 +14,11 @@ def calculate_centroid(residues: List[Residue]):
     """
     Calculate the coordinates of the centroid of a list of their residues
     """
-    xs = []
-    ys = []
-    zs = []
-
-    for res in residues:
-        if is_aa(res):
-            coords = res["CA"].get_coord()
-            xs.append(coords[0])
-            ys.append(coords[1])
-            zs.append(coords[2])
-
-    centroid = [np.average(xs), np.average(ys), np.average(zs)]
-
+    points = np.array([res["CA"].get_coord() for res in residues]).T
+    centroid = np.mean(points, axis=1, keepdims=True) 
     return centroid
 
-def face_plane(residues: List[Residue]):
+def plane_normal(residues: List[Residue]):
     # generate random points on the plane and add random displacement
     points = np.array([res["CA"].get_coord() for res in residues]).T
 
@@ -40,10 +29,9 @@ def face_plane(residues: List[Residue]):
     left = svd[0]
     # the normal vector to the plane
     normal = left[:, -1]
-    breakpoint()
     return normal
 
-def plane_angle(normal1: np.ndarray, normal2: np.ndarray) -> float:
+def vec_angle(normal1: np.ndarray, normal2: np.ndarray) -> float:
     """
     Compute the angle (in degrees) between two planes defined by their normal vectors.
     """
@@ -58,6 +46,16 @@ def plane_angle(normal1: np.ndarray, normal2: np.ndarray) -> float:
     angle_rad = np.arccos(abs(dot))
     angle_deg = np.degrees(angle_rad)
     return angle_deg
+
+def face_angle(r1: List[Residue], r2: List[Residue]) -> float:
+    """
+    compute the angle between the two faces of an interface
+    r1: the residues in one participating chain
+    r1: the residues in the other participating chain
+    """
+    norm1 = plane_normal(r1)
+    norm2 = plane_normal(r2)
+    return vec_angle(norm1, norm2)
 
 def centroid_radius(residues, centroid: List[float]) -> float:
     """
@@ -87,10 +85,12 @@ def closest_res_distance(interface_residues: List[Residue], target_res: Residue)
     # Finding the closest interface residue to the residue of interest
     for i_res in interface_residues:
         try:
-            min_distance = np.minimum(min_distance, i_res["CA"] - target_res["CA"])
+            min_distance = min(min_distance, i_res["CA"] - target_res["CA"])
         except:
             print("residue didn't have alpha carbon")
 
+    if min_distance == np.inf:
+        breakpoint()
     return min_distance
 
 
@@ -107,8 +107,6 @@ def calculate_rmsd(wt_residues: List[Residue], mut_residues: List[Residue]):
     """
     # TODO: Verify each atom name matches if
     supermimposer = Superimposer()
-    print(wt_residues)
-    print(mut_residues)
     wt_atoms = get_ca_atoms(wt_residues)
     mut_atoms = get_ca_atoms(mut_residues)
     if len(wt_atoms) != len(mut_atoms):
@@ -119,7 +117,7 @@ def calculate_rmsd(wt_residues: List[Residue], mut_residues: List[Residue]):
     return supermimposer.rms
 
 def main():
-    face_plane(None)
+    plane_normal(None)
 
 if __name__ == "__main__":
     main()

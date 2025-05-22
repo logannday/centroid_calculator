@@ -2,7 +2,7 @@ import re, argparse, os, sys
 from typing import List
 
 from json_to_struc_list import load_structures
-from plotting import plot_centroid_vs_rmsd
+# from plotting import plot_centroid_vs_rmsd
 from Bio.PDB.Polypeptide import is_aa
 from Bio.PDB.PDBParser import PDBParser
 from Bio.PDB.Structure import Structure
@@ -12,8 +12,8 @@ from Bio.PDB.Residue import Residue
 from Bio.PDB.internal_coords import *
 import pandas as pd
 import numpy as np
-from centroid import calculate_centroid, calculate_rmsd, closest_res_distance, face_plane
-from detect_interface import get_face_residues, get_interface_residues
+from centroid import calculate_centroid, calculate_rmsd, closest_res_distance, face_angle
+from detect_interface import interface_res 
 from dataclasses import dataclass
 from pprint import pprint
 
@@ -140,14 +140,12 @@ def get_fasta(struc: Structure, chain_ids=("A", "B")):
     """
     model = struc[0]
     sequence = []
-    pprint(res.resname for res in struc[0].get_residues())
     for chain_id in chain_ids:
         # get single letter code for each residue in the chain
         chain = model[chain_id]
         residues = [
             aa_names.get(res.resname) for res in chain if is_aa(res)
         ]
-        print("chain: ", chain_id, residues)
         sequence = sequence + residues
 
     return "".join(sequence)
@@ -160,7 +158,8 @@ def map_residues(
     wt_chains=("A", "B"),
 ):
     """
-    map a set of residues in one structure to the same residues in the mutant.
+    map a set of residues in one structure to the same residues in the mutant. Returns a dictionary
+    containing entries for residues in chain A, B and all combined
     ref_struc: The structure of the wildtype
     target_struc: The structure of the mutant
     wt_chains: determines which chains are equivalent to chaines A and B in the mutant. This is necessary because
@@ -175,12 +174,13 @@ def map_residues(
     # print(alignments[0])
     alignment = alignments[0]
     struture_alignment = StructureAlignment(alignment, ref_struc, target_struc)
-    mut_interface_residues = []
 
     (res_map, _) = struture_alignment.get_maps()
-    mut_interface_residues = [res_map.get(res) for res in wt_residues]
-
-    return mut_interface_residues
+    mut_res = {}
+    mut_res["A"] = [res_map.get(res) for res in wt_residues if res.full_id[2] == wt_chains[0]]
+    mut_res["B"] = [res_map.get(res) for res in wt_residues if res.full_id[2] == wt_chains[1]]
+    mut_res["all"] = mut_res['A'] + mut_res["B"]
+    return mut_res
 
 
 def populate_dataframe(
@@ -193,33 +193,38 @@ def populate_dataframe(
         Mutants: List of Mutants, each containing a Biopython Structure,
             insertion location, and insertion residue information
     """
-    wt_interface_residues = get_interface_residues(wildtype, chain_ids=wt_chains)
-    centroid = calculate_centroid(wt_interface_residues)
     rows = []
-    face_residues = get_face_residues(wildtype, wt_chains)
-    plane = face_plane(wt_interface_residues)
+
+    c1, c2 = wt_chains
+    wt_res = interface_res(wildtype, wt_chains)
+    centroid = calculate_centroid(wt_res["all"])
+    wt_angle = face_angle(wt_res[c1], wt_res[c2])
 
     for mutant in mutants:
         try:
             validate_chains(mutant.structure, ("A", "B"))
         except:
             sys.stderr.write("Skipping mutant with incorrect chain ids\n")
-            continue
-        print(mutant.name)
 
-        mut_interface_residues = map_residues(
-            wildtype, mutant.structure, wt_interface_residues, wt_chains
+        mut_res = map_residues(
+            wildtype, mutant.structure, wt_res["all"], wt_chains
         )
+
+        mut_angle = face_angle(mut_res["A"], mut_res["B"])
+
         # Get the residue in the wildtype at the future insertion position
         inserted_residue = get_res_by_absolute_index(
             wildtype, mutant.location, wt_chains
         )
-        cir_distance = closest_res_distance(wt_interface_residues, inserted_residue)
+
+        cir_distance = closest_res_distance(wt_res["all"], inserted_residue)
+
         centroid_distance = np.linalg.norm(
             inserted_residue["CA"].get_coord() - centroid
         )
-        interface_rmsd = calculate_rmsd(wt_interface_residues, mut_interface_residues)
-        print(rows)
+
+        interface_rmsd = calculate_rmsd(wt_res["all"], mut_res["all"])
+
         rows.append(
             {
                 "location": mutant.location,
@@ -227,6 +232,7 @@ def populate_dataframe(
                 "centroid_distance": centroid_distance,
                 "closest_interface_res_distance": cir_distance,
                 "interface_rmsd": interface_rmsd,
+                "angle": wt_angle - mut_angle,
             }
         )
     df = pd.DataFrame.from_dict(rows)
