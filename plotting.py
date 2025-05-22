@@ -41,6 +41,7 @@ def plot_centroid_vs_rmsd(
         plt.savefig(save_path, dpi=300)
 
     plt.show()
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--filepath', type = str, help = "path to csv")
@@ -50,7 +51,7 @@ def main():
     pdb_id = args.pdb_id
     filepath = args.filepath
     df = pd.read_csv(filepath)
-    plot_centroid_vs_rmsd(df, save_path=f"./plots/{pdb_id}")
+    plot_centroid_vs_rmsd(df, save_path=f"plot.png")
 
 if __name__ == "__main__":
     main()

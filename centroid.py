@@ -1,4 +1,5 @@
 from typing import List
+import sys, math
 
 # from Bio.PDB.PDBParser import PDBParser
 # from Bio.PDB.Chain import Chain
@@ -27,6 +28,53 @@ def calculate_centroid(residues: List[Residue]):
     centroid = [np.average(xs), np.average(ys), np.average(zs)]
 
     return centroid
+
+def face_plane(residues: List[Residue]):
+    # generate random points on the plane and add random displacement
+    points = np.array([res["CA"].get_coord() for res in residues]).T
+
+    # subtract out the centroid and take the SVD
+    svd = np.linalg.svd(points - np.mean(points, axis=1, keepdims=True))
+
+    # Extract the left singular vectors
+    left = svd[0]
+    # the normal vector to the plane
+    normal = left[:, -1]
+    breakpoint()
+    return normal
+
+def plane_angle(normal1: np.ndarray, normal2: np.ndarray) -> float:
+    """
+    Compute the angle (in degrees) between two planes defined by their normal vectors.
+    """
+    # Ensure both normals are unit vectors
+    n1 = normal1 / np.linalg.norm(normal1)
+    n2 = normal2 / np.linalg.norm(normal2)
+
+    # Compute the dot product and clamp for numerical stability
+    dot = np.clip(np.dot(n1, n2), -1.0, 1.0)
+
+    # Return angle in degrees
+    angle_rad = np.arccos(abs(dot))
+    angle_deg = np.degrees(angle_rad)
+    return angle_deg
+
+def centroid_radius(residues, centroid: List[float]) -> float:
+    """
+    calculate the radius of the centroid by finding the furthest interface residue from the centroid
+    TODO: Check for outliers
+    """
+    cx, cy, cz = centroid[0], centroid[1], centroid[2]
+    radius = 0
+    for res in residues:
+        if is_aa(res):
+            coords = res["CA"].get_coord()
+            x, y, z = (coords[0], coords[1], coords[2])
+            dist = math.sqrt((cx-x) ** 2 + (cy-y) ** 2 + (cz-z) **2)
+            radius = math.max(radius, dist)
+        else:
+            print("Non amino acid input as interface residue")
+    return radius
 
 
 def closest_res_distance(interface_residues: List[Residue], target_res: Residue):
@@ -69,3 +117,9 @@ def calculate_rmsd(wt_residues: List[Residue], mut_residues: List[Residue]):
     supermimposer.set_atoms(wt_atoms, mut_atoms)
     supermimposer.apply(mut_atoms)
     return supermimposer.rms
+
+def main():
+    face_plane(None)
+
+if __name__ == "__main__":
+    main()

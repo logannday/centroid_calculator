@@ -12,9 +12,10 @@ from Bio.PDB.Residue import Residue
 from Bio.PDB.internal_coords import *
 import pandas as pd
 import numpy as np
-from centroid import calculate_centroid, calculate_rmsd, closest_res_distance
-from detect_interface import get_interface_residues
+from centroid import calculate_centroid, calculate_rmsd, closest_res_distance, face_plane
+from detect_interface import get_face_residues, get_interface_residues
 from dataclasses import dataclass
+from pprint import pprint
 
 aa_names = {
     "ALA": "A",
@@ -76,7 +77,6 @@ def get_mutants(structs_names) -> List[Mutant]:
         resname = match.group(3)
         mutants.append(Mutant(struct, insertion, ins_location, resname, filename))
     return mutants
-
 
 def get_mutants_from_base_path(base_path) -> List[Mutant]:
     """
@@ -140,11 +140,14 @@ def get_fasta(struc: Structure, chain_ids=("A", "B")):
     """
     model = struc[0]
     sequence = []
-    for chain in chain_ids:
+    pprint(res.resname for res in struc[0].get_residues())
+    for chain_id in chain_ids:
         # get single letter code for each residue in the chain
+        chain = model[chain_id]
         residues = [
-            aa_names.get(res.resname) for res in model[chain] if res.resname != "HOH"
+            aa_names.get(res.resname) for res in chain if is_aa(res)
         ]
+        print("chain: ", chain_id, residues)
         sequence = sequence + residues
 
     return "".join(sequence)
@@ -183,9 +186,6 @@ def map_residues(
 def populate_dataframe(
     wildtype: Structure, mutants: List[Mutant], wt_chains=("A", "B")
 ) -> pd.DataFrame:
-    wt_interface_residues = get_interface_residues(wildtype, chain_ids=wt_chains)
-    centroid = calculate_centroid(wt_interface_residues)
-    rows = []
     """
         Iterate through a list of Mutant objects and generate 
         interface metrics for each one
@@ -193,6 +193,11 @@ def populate_dataframe(
         Mutants: List of Mutants, each containing a Biopython Structure,
             insertion location, and insertion residue information
     """
+    wt_interface_residues = get_interface_residues(wildtype, chain_ids=wt_chains)
+    centroid = calculate_centroid(wt_interface_residues)
+    rows = []
+    face_residues = get_face_residues(wildtype, wt_chains)
+    plane = face_plane(wt_interface_residues)
 
     for mutant in mutants:
         try:
@@ -200,6 +205,7 @@ def populate_dataframe(
         except:
             sys.stderr.write("Skipping mutant with incorrect chain ids\n")
             continue
+        print(mutant.name)
 
         mut_interface_residues = map_residues(
             wildtype, mutant.structure, wt_interface_residues, wt_chains
@@ -208,9 +214,7 @@ def populate_dataframe(
         inserted_residue = get_res_by_absolute_index(
             wildtype, mutant.location, wt_chains
         )
-        cir_distance = closest_res_distance(
-            wt_interface_residues, inserted_residue
-        )
+        cir_distance = closest_res_distance(wt_interface_residues, inserted_residue)
         centroid_distance = np.linalg.norm(
             inserted_residue["CA"].get_coord() - centroid
         )
@@ -240,7 +244,13 @@ def validate_chains(complex: Structure, chain_ids):
 
 
 def main():
-    argparser = argparse.ArgumentParser()
+    argparser = argparse.ArgumentParser(
+        usage="generates a csv of interface "
+        + "metrics at 'outpath' given a pdb id. This program searches for wildtype "
+        + "pdbs at /research/jagodzinski/interface_mutations/input_files/PDB_ID "
+        + "and for mutants at "
+        + "/research/jagodzinski/interface_mutations/complete_runs/DATA/targeted_mutants/PDB_ID"
+    )
     argparser.add_argument(
         "pdb_id", type=str, help='pdb id of the protein. For example, "1brs"'
     )
@@ -268,6 +278,7 @@ def main():
         f"/research/jagodzinski/interface_mutations/input_files/{pdb_id}/in.pdb"
     )
     mut_filepath = f"/research/jagodzinski/interface_mutations/complete_runs/DATA/targeted_mutants/{pdb_id}"
+
     wildtype = pdb_parser.get_structure(pdb_id, wt_filepath)
     validate_chains(wildtype, chain_ids)  # check that the chains are in the complex
     structs_names = load_structures(mut_filepath, limit or 100000000)
