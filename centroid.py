@@ -15,8 +15,9 @@ def calculate_centroid(residues: List[Residue]):
     Calculate the coordinates of the centroid of a list of their residues
     """
     points = np.array([res["CA"].get_coord() for res in residues]).T
-    centroid = np.mean(points, axis=1, keepdims=True) 
+    centroid = np.mean(points, axis=1, keepdims=True)
     return centroid
+
 
 def plane_normal(residues: List[Residue]):
     # generate random points on the plane and add random displacement
@@ -30,6 +31,7 @@ def plane_normal(residues: List[Residue]):
     # the normal vector to the plane
     normal = left[:, -1]
     return normal
+
 
 def vec_angle(normal1: np.ndarray, normal2: np.ndarray) -> float:
     """
@@ -47,6 +49,7 @@ def vec_angle(normal1: np.ndarray, normal2: np.ndarray) -> float:
     angle_deg = np.degrees(angle_rad)
     return angle_deg
 
+
 def face_angle(r1: List[Residue], r2: List[Residue]) -> float:
     """
     compute the angle between the two faces of an interface
@@ -56,6 +59,7 @@ def face_angle(r1: List[Residue], r2: List[Residue]) -> float:
     norm1 = plane_normal(r1)
     norm2 = plane_normal(r2)
     return vec_angle(norm1, norm2)
+
 
 def centroid_radius(residues, centroid: List[float]) -> float:
     """
@@ -68,7 +72,7 @@ def centroid_radius(residues, centroid: List[float]) -> float:
         if is_aa(res):
             coords = res["CA"].get_coord()
             x, y, z = (coords[0], coords[1], coords[2])
-            dist = math.sqrt((cx-x) ** 2 + (cy-y) ** 2 + (cz-z) **2)
+            dist = math.sqrt((cx - x) ** 2 + (cy - y) ** 2 + (cz - z) ** 2)
             radius = math.max(radius, dist)
         else:
             print("Non amino acid input as interface residue")
@@ -116,8 +120,27 @@ def calculate_rmsd(wt_residues: List[Residue], mut_residues: List[Residue]):
     supermimposer.apply(mut_atoms)
     return supermimposer.rms
 
+
 def main():
-    plane_normal(None)
+    print("NA")
+
+
+def at_near_away(
+    interface_residues: List[Residue], flanking_residue: Residue, cir_distance: float
+):
+    """
+    Categorizes an insertion location as at, near, or away from an interface
+    flanking residue: a residue adjacent to the insertion location
+    interface_residues: The residues determined to be in the interface by change in SASA
+    cir_distance: The distance from the flanking residue to the closest interface residue
+    """
+    if flanking_residue in interface_residues: 
+        return "at"
+    elif cir_distance < 5:
+        return "near"
+    else:
+        return "away"
+
 
 if __name__ == "__main__":
     main()

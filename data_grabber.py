@@ -1,6 +1,6 @@
 import re, argparse, os, sys
 from typing import List
-
+from Bio.PDB.SASA import ShrakeRupley
 from json_to_struc_list import load_structures
 # from plotting import plot_centroid_vs_rmsd
 from Bio.PDB.Polypeptide import is_aa
@@ -12,10 +12,9 @@ from Bio.PDB.Residue import Residue
 from Bio.PDB.internal_coords import *
 import pandas as pd
 import numpy as np
-from centroid import calculate_centroid, calculate_rmsd, closest_res_distance, face_angle
+from centroid import calculate_centroid, calculate_rmsd, closest_res_distance, face_angle, at_near_away
 from detect_interface import interface_res 
 from dataclasses import dataclass
-from pprint import pprint
 
 aa_names = {
     "ALA": "A",
@@ -182,6 +181,13 @@ def map_residues(
     mut_res["all"] = mut_res['A'] + mut_res["B"]
     return mut_res
 
+def total_SASA(struc: Structure):
+    """
+    Return total SASA for a structure
+    """
+    sr = ShrakeRupley()
+    sr.compute(struc, level="S")
+    return struc.sasa
 
 def populate_dataframe(
     wildtype: Structure, mutants: List[Mutant], wt_chains=("A", "B")
@@ -199,6 +205,7 @@ def populate_dataframe(
     wt_res = interface_res(wildtype, wt_chains)
     centroid = calculate_centroid(wt_res["all"])
     wt_angle = face_angle(wt_res[c1], wt_res[c2])
+    wt_SASA = total_SASA(wildtype)
 
     for mutant in mutants:
         try:
@@ -206,6 +213,7 @@ def populate_dataframe(
         except:
             sys.stderr.write("Skipping mutant with incorrect chain ids\n")
 
+        mut_SASA = total_SASA(mutant.structure)
         mut_res = map_residues(
             wildtype, mutant.structure, wt_res["all"], wt_chains
         )
@@ -216,14 +224,16 @@ def populate_dataframe(
         inserted_residue = get_res_by_absolute_index(
             wildtype, mutant.location, wt_chains
         )
-
+        
         cir_distance = closest_res_distance(wt_res["all"], inserted_residue)
+        res_loc = at_near_away(wt_res["all"], inserted_residue, cir_distance)
 
         centroid_distance = np.linalg.norm(
             inserted_residue["CA"].get_coord() - centroid
         )
 
         interface_rmsd = calculate_rmsd(wt_res["all"], mut_res["all"])
+
 
         rows.append(
             {
@@ -233,6 +243,8 @@ def populate_dataframe(
                 "closest_interface_res_distance": cir_distance,
                 "interface_rmsd": interface_rmsd,
                 "angle": wt_angle - mut_angle,
+                "at_near_away": res_loc,
+                "delta_SASA": mut_SASA - wt_SASA 
             }
         )
     df = pd.DataFrame.from_dict(rows)
@@ -293,7 +305,7 @@ def main():
     data = populate_dataframe(wildtype, mutants, chain_ids)
     # plot_centroid_vs_rmsd(data, save_path=f"./plots/{pdb_id}")
 
-    data.to_csv(f"{outpath}" + "/" + pdb_id)
+    data.to_csv(f"{outpath}" + "/" + pdb_id + ".csv")
 
 
 if __name__ == "__main__":
