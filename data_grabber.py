@@ -1,6 +1,7 @@
 import re, argparse, os, sys
 from typing import List
 from Bio.PDB.SASA import ShrakeRupley
+from Bio.PDB.DSSP import DSSP
 from json_to_struc_list import load_structures
 # from plotting import plot_centroid_vs_rmsd
 from Bio.PDB.Polypeptide import is_aa
@@ -188,6 +189,9 @@ def total_SASA(struc: Structure):
     sr = ShrakeRupley()
     sr.compute(struc, level="S")
     return struc.sasa
+def sec_struc(struc: Structure):
+    model = struc[0]
+    dssp = DSSP(model, f"/research/jagodzinski/interface_mutations/input_files/{pdb_id}/in.pdb")
 
 def populate_dataframe(
     wildtype: Structure, mutants: List[Mutant], wt_chains=("A", "B")
@@ -289,6 +293,7 @@ def main():
     outpath = args.outpath
     limit = args.limit
     chain_ids = list(args.chain_ids.upper())
+    
 
     pdb_parser = PDBParser()
 
