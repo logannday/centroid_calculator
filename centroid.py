@@ -1,4 +1,6 @@
 from typing import List
+from Bio.PDB.PDBParser import PDBParser
+from detect_interface import get_interface_residues
 import sys, math
 
 # from Bio.PDB.PDBParser import PDBParser
@@ -19,17 +21,39 @@ def calculate_centroid(residues: List[Residue]):
     return centroid
 
 
-def plane_normal(residues: List[Residue]):
-    # generate random points on the plane and add random displacement
+def centroid_normal(residues: List[Residue]):
+    # get CA coordinates from residues
     points = np.array([res["CA"].get_coord() for res in residues]).T
 
-    # subtract out the centroid and take the SVD
-    svd = np.linalg.svd(points - np.mean(points, axis=1, keepdims=True))
+    # compute centroid
+    centroid = np.mean(points, axis=1)
+    print("Center point (centroid):", centroid)
 
-    # Extract the left singular vectors
-    left = svd[0]
-    # the normal vector to the plane
-    normal = left[:, -1]
+    # subtract out the centroid and take the SVD
+    svd = np.linalg.svd(points - centroid[:, np.newaxis])
+
+    # normal vector is the last left singular vector
+    normal = svd[0][:, -1]
+    print("Normal vector:", normal)
+
+    return (centroid, normal)
+
+
+def plane_normal(residues: List[Residue]):
+    # get CA coordinates from residues
+    points = np.array([res["CA"].get_coord() for res in residues]).T
+
+    # compute centroid
+    centroid = np.mean(points, axis=1)
+    print("Center point (centroid):", centroid)
+
+    # subtract out the centroid and take the SVD
+    svd = np.linalg.svd(points - centroid[:, np.newaxis])
+
+    # normal vector is the last left singular vector
+    normal = svd[0][:, -1]
+    print("Normal vector:", normal)
+
     return normal
 
 
@@ -134,7 +158,7 @@ def at_near_away(
     interface_residues: The residues determined to be in the interface by change in SASA
     cir_distance: The distance from the flanking residue to the closest interface residue
     """
-    if flanking_residue in interface_residues: 
+    if flanking_residue in interface_residues:
         return "at"
     elif cir_distance < 5:
         return "near"
